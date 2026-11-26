@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Colorir — foto para desenho</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#fff3c9">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Colorir">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
@@ -62,6 +68,10 @@ select{font:600 16px Nunito,sans-serif;min-height:40px;border-radius:8px;border:
 .sw{aspect-ratio:1;border-radius:50%;border:2px solid #0003;cursor:pointer;padding:0;min-height:34px}
 .sw[aria-pressed=true]{box-shadow:0 0 0 3px var(--card),0 0 0 6px var(--ink)}
 .sw.erase{background:#fff;position:relative}.sw.erase::after{content:"";position:absolute;inset:44% 14%;background:#e63946;transform:rotate(-45deg);border-radius:2px}
+.offline{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:14px;font-size:15px;color:var(--soft)}
+.offline b{display:inline-flex;align-items:center;gap:6px;color:var(--ink)}.offline b::before{content:"";width:10px;height:10px;border-radius:50%;background:#c9b98a}
+.offline.ok b::before{background:#06d6a0}
+.offline .btn{min-height:38px;padding:0 14px;font-size:15px}
 .btns{display:flex;flex-wrap:wrap;gap:8px}.btns .btn{flex:1 1 120px}
 #printImg{display:none}
 @media(max-width:860px){.work{grid-template-columns:minmax(0,1fr)}.drop{min-height:52vh}}
@@ -74,6 +84,7 @@ select{font:600 16px Nunito,sans-serif;min-height:40px;border-radius:8px;border:
   <h1>Colorir</h1>
   <p>Transforme uma foto em desenho para pintar. A IA roda no seu próprio navegador: a foto não sai do aparelho.</p>
   <div class="crayons" aria-hidden="true"><i style="background:#e63946"></i><i style="background:#f4a261"></i><i style="background:#ffd166"></i><i style="background:#06d6a0"></i><i style="background:#3a86ff"></i><i style="background:#8338ec"></i></div>
+  <div class="offline" id="offline"><b id="offTxt">Verificando uso offline…</b><button id="prep" class="btn" hidden>Preparar para usar offline</button></div>
 </header>
 
 <main class="band work">
@@ -182,8 +193,37 @@ async function loadModel() {
   }
   busy(true, 'Preparando o modelo…', null); await tick();
   session = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
+  offlineState();
   return session;
 }
+
+/* ---------- Uso offline (PWA) ---------- */
+async function offlineState() {
+  let model = false;
+  try { model = !!(await (await caches.open('colorir-modelo-v1')).match(MODEL_URL)); } catch (e) {}
+  const sw = 'serviceWorker' in navigator && location.protocol.startsWith('http');
+  const ok = model && sw;
+  $('offline').classList.toggle('ok', ok);
+  $('offTxt').textContent = ok ? 'Pronto para usar sem internet'
+    : !sw ? 'Uso offline só funciona com o app publicado (https)'
+    : 'Para usar sem internet, prepare o app uma vez';
+  $('prep').hidden = ok || !sw;
+}
+if ('serviceWorker' in navigator && location.protocol.startsWith('http'))
+  navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
+offlineState();
+$('prep').addEventListener('click', async () => {
+  $('prep').disabled = true;
+  const wasEmpty = !$('empty').hidden;
+  try {
+    await loadModel();
+    status('Tudo pronto: o app já funciona sem internet.');
+  } catch (e) {
+    status('Não consegui preparar o uso offline (' + e.message + '). Verifique a internet e tente de novo.');
+  }
+  busy(false); $('prep').disabled = false;
+  if (wasEmpty) $('empty').hidden = false;
+});
 
 function fitSize(S) {
   const k = S / Math.max(img.naturalWidth, img.naturalHeight);
